@@ -69,7 +69,7 @@ local schema = {
         },
         rejected_msg = {
             type = "string",
-            default = "Rate limit exceeded",
+            default = "Rate limit exceeded. See https://ecosyste.ms/api for details.",
             description = "Response body when rate limit exceeded"
         },
         policy = {
