@@ -12,7 +12,20 @@ This plugin categorizes requests into three tiers with different rate limits:
 
 ## Installation
 
-Configure as a global rule via the APISIX Admin API:
+1. Clone the repository and copy the plugin to your APISIX container:
+
+```bash
+git clone https://github.com/ecosyste-ms/conditional-rate-limit.lua
+docker cp ~/conditional-rate-limit.lua/conditional-rate-limit.lua apisix-quickstart:/usr/local/apisix/apisix/plugins
+```
+
+2. Restart APISIX to load the new plugin:
+
+```bash
+docker restart apisix-quickstart
+```
+
+3. Configure as a global rule via the APISIX Admin API:
 
 ```bash
 curl -X PUT \
