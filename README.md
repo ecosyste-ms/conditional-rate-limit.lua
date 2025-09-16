@@ -10,6 +10,32 @@ This plugin categorizes requests into three tiers with different rate limits:
 2. **Polite** - Users who include an email in their User-Agent get moderate limits
 3. **Anonymous** - Everyone else gets the most restrictive limits
 
+## Installation
+
+Configure as a global rule via the APISIX Admin API:
+
+```bash
+curl -X PUT \
+  http://YOUR_APISIX_IP:9180/apisix/admin/global_rules/1 \
+  -H 'Content-Type: application/json' \
+  -H "X-API-KEY: YOUR_ADMIN_API_KEY" \
+  -d '{
+    "plugins": {
+      "conditional-rate-limit": {
+        "api_key_count": 50000,
+        "api_key_time_window": 3600,
+        "polite_count": 15000,
+        "polite_time_window": 3600,
+        "anonymous_count": 5000,
+        "anonymous_time_window": 3600,
+        "key_header": "X-API-Key",
+        "key_query_param": "apikey",
+        "email_pattern": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+      }
+    }
+  }'
+```
+
 ## Configuration
 
 ```yaml
