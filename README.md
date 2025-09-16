@@ -43,6 +43,7 @@ curl -X PUT \
         "anonymous_time_window": 3600,
         "key_header": "X-API-Key",
         "key_query_param": "apikey",
+        "mailto_query_param": "mailto",
         "email_pattern": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
       }
     }
@@ -72,7 +73,8 @@ plugins:
       key_header: "X-API-Key"
       key_query_param: "apikey"
 
-      # Email pattern for polite tier
+      # Email detection for polite tier
+      mailto_query_param: "mailto"
       email_pattern: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
 
       # Response
@@ -86,8 +88,11 @@ plugins:
 # API key - 1000 req/min
 curl -H "X-API-Key: your-key" https://api.ecosyste.ms/endpoint
 
-# Polite - 100 req/min
+# Polite - 100 req/min (via User-Agent)
 curl -H "User-Agent: MyApp/1.0 (contact: user@example.com)" https://api.ecosyste.ms/endpoint
+
+# Polite - 100 req/min (via mailto parameter)
+curl "https://api.ecosyste.ms/endpoint?mailto=you@example.com"
 
 # Anonymous - 10 req/min
 curl https://api.ecosyste.ms/endpoint
