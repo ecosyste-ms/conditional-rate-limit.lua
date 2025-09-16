@@ -1,10 +1,22 @@
 local core = require("apisix.core")
 local plugin = require("apisix.plugin")
+local prometheus = require("apisix.plugins.prometheus.exporter")
 local ngx = ngx
 local ngx_time = ngx.time
 local string = string
+local md5 = ngx.md5
 
 local plugin_name = "conditional-rate-limit"
+
+-- Prometheus metrics
+local user_agent_counter = prometheus.new("counter", "conditional_rate_limit_user_agent",
+    "User-Agent types by tier", {"tier", "ua_type"})
+local api_key_counter = prometheus.new("counter", "conditional_rate_limit_api_key",
+    "API key usage (hashed)", {"api_key_hash"})
+local email_source_counter = prometheus.new("counter", "conditional_rate_limit_email_source",
+    "Email detection source", {"source"})
+local tier_counter = prometheus.new("counter", "conditional_rate_limit_tier",
+    "Overall tier usage", {"tier"})
 
 local schema = {
     type = "object",
@@ -109,17 +121,21 @@ local function get_identifier(conf, ctx)
     if api_key then
         -- Use API key as identifier for per-key rate limiting
         local identifier = "apikey:" .. api_key
-        return identifier, "api_key", true, api_key
+        return identifier, "api_key", true, api_key, nil
     end
 
     -- Check for email in mailto query parameter first
     local is_polite = false
+    local email_source = nil
     if conf.mailto_query_param then
         local args = core.request.get_uri_args(ctx) or {}
         local mailto = args[conf.mailto_query_param]
         if mailto then
             -- Check if the mailto parameter contains a valid email
             is_polite = string.match(mailto, conf.email_pattern) ~= nil
+            if is_polite then
+                email_source = "query_param"
+            end
         end
     end
 
@@ -127,12 +143,15 @@ local function get_identifier(conf, ctx)
     if not is_polite then
         local user_agent = core.request.header(ctx, "User-Agent") or ""
         is_polite = string.match(user_agent, conf.email_pattern) ~= nil
+        if is_polite then
+            email_source = "user_agent"
+        end
     end
 
     local tier = is_polite and "polite" or "anonymous"
     local identifier = remote_addr .. ":" .. tier
 
-    return identifier, tier, is_polite, nil
+    return identifier, tier, is_polite, nil, email_source
 end
 
 local function get_rate_limit_config(conf, tier)
@@ -180,9 +199,29 @@ function _M.check_schema(conf)
 end
 
 function _M.access(conf, ctx)
-    local identifier, tier, has_special_access, api_key = get_identifier(conf, ctx)
+    local identifier, tier, has_special_access, api_key, email_source = get_identifier(conf, ctx)
     local count_limit, time_window = get_rate_limit_config(conf, tier)
     local allowed, limit, remaining, reset_time = check_rate_limit(conf, identifier, count_limit, time_window)
+
+    -- Collect Prometheus metrics
+
+    -- Track overall tier usage
+    tier_counter:inc(1, {tier})
+
+    -- Track User-Agent by tier (raw User-Agent string)
+    local user_agent = core.request.header(ctx, "User-Agent") or "unknown"
+    user_agent_counter:inc(1, {tier, user_agent})
+
+    -- Track API key usage (hashed for privacy)
+    if api_key then
+        local api_key_hash = string.sub(md5(api_key), 1, 8)
+        api_key_counter:inc(1, {api_key_hash})
+    end
+
+    -- Track email detection source for polite tier
+    if email_source then
+        email_source_counter:inc(1, {email_source})
+    end
 
     -- Add rate limit headers
     core.response.set_header("x-ratelimit-limit", limit)
