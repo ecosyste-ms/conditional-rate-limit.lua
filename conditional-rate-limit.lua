@@ -22,7 +22,7 @@ local schema = {
             description = "Time window in seconds for anonymous users"
         },
         polite_count = {
-            type = "integer", 
+            type = "integer",
             minimum = 0,
             default = 15000,
             description = "Rate limit count for polite users per time window"
@@ -32,6 +32,28 @@ local schema = {
             minimum = 1,
             default = 3600,
             description = "Time window in seconds for polite users"
+        },
+        api_key_count = {
+            type = "integer",
+            minimum = 0,
+            default = 50000,
+            description = "Rate limit count for API key users per time window"
+        },
+        api_key_time_window = {
+            type = "integer",
+            minimum = 1,
+            default = 3600,
+            description = "Time window in seconds for API key users"
+        },
+        key_header = {
+            type = "string",
+            default = "X-API-Key",
+            description = "Header to check for API key"
+        },
+        key_query_param = {
+            type = "string",
+            default = "apikey",
+            description = "Query parameter to check for API key"
         },
         email_pattern = {
             type = "string",
@@ -70,20 +92,35 @@ local _M = {
 local counters = {}
 
 local function get_identifier(conf, ctx)
-    local user_agent = core.request.header(ctx, "User-Agent") or ""
     local remote_addr = ctx.var.remote_addr or "unknown"
-    
+
+    -- Check for API key in header or query param
+    local api_key = core.request.header(ctx, conf.key_header)
+    if not api_key and conf.key_query_param then
+        local args = core.request.get_uri_args(ctx) or {}
+        api_key = args[conf.key_query_param]
+    end
+
+    if api_key then
+        -- Use API key as identifier for per-key rate limiting
+        local identifier = "apikey:" .. api_key
+        return identifier, "api_key", true, api_key
+    end
+
     -- Check if User-Agent contains email pattern
+    local user_agent = core.request.header(ctx, "User-Agent") or ""
     local is_polite = string.match(user_agent, conf.email_pattern) ~= nil
-    
+
     local tier = is_polite and "polite" or "anonymous"
     local identifier = remote_addr .. ":" .. tier
-    
-    return identifier, tier, is_polite
+
+    return identifier, tier, is_polite, nil
 end
 
 local function get_rate_limit_config(conf, tier)
-    if tier == "polite" then
+    if tier == "api_key" then
+        return conf.api_key_count, conf.api_key_time_window
+    elseif tier == "polite" then
         return conf.polite_count, conf.polite_time_window
     else
         return conf.anonymous_count, conf.anonymous_time_window
