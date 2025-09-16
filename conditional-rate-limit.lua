@@ -60,6 +60,11 @@ local schema = {
             default = "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+%.[A-Za-z][A-Za-z]+",
             description = "Lua pattern to match emails in User-Agent"
         },
+        mailto_query_param = {
+            type = "string",
+            default = "mailto",
+            description = "Query parameter to check for email address"
+        },
         rejected_code = {
             type = "integer",
             minimum = 200,
@@ -107,9 +112,22 @@ local function get_identifier(conf, ctx)
         return identifier, "api_key", true, api_key
     end
 
-    -- Check if User-Agent contains email pattern
-    local user_agent = core.request.header(ctx, "User-Agent") or ""
-    local is_polite = string.match(user_agent, conf.email_pattern) ~= nil
+    -- Check for email in mailto query parameter first
+    local is_polite = false
+    if conf.mailto_query_param then
+        local args = core.request.get_uri_args(ctx) or {}
+        local mailto = args[conf.mailto_query_param]
+        if mailto then
+            -- Check if the mailto parameter contains a valid email
+            is_polite = string.match(mailto, conf.email_pattern) ~= nil
+        end
+    end
+
+    -- If not found in mailto param, check User-Agent
+    if not is_polite then
+        local user_agent = core.request.header(ctx, "User-Agent") or ""
+        is_polite = string.match(user_agent, conf.email_pattern) ~= nil
+    end
 
     local tier = is_polite and "polite" or "anonymous"
     local identifier = remote_addr .. ":" .. tier

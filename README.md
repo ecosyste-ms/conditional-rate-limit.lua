@@ -7,7 +7,7 @@ Apache APISIX plugin for three-tier rate limiting used by [Ecosyste.ms](https://
 This plugin categorizes requests into three tiers with different rate limits:
 
 1. **API Key** - Users with API keys get the highest limits
-2. **Polite** - Users who include an email in their User-Agent get moderate limits
+2. **Polite** - Users who include an email in their User-Agent or use the `mailto` parameter get moderate limits
 3. **Anonymous** - Everyone else gets the most restrictive limits
 
 ## Installation
