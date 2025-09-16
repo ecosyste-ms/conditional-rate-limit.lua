@@ -3,35 +3,8 @@ local plugin = require("apisix.plugin")
 local ngx = ngx
 local ngx_time = ngx.time
 local string = string
-local md5 = ngx.md5
 
 local plugin_name = "conditional-rate-limit"
-
--- Prometheus metrics (lazy initialization)
-local prometheus
-local user_agent_counter
-local api_key_counter
-local email_source_counter
-local tier_counter
-
-local function init_prometheus()
-    if not prometheus then
-        local prom = require("apisix.plugins.prometheus.exporter")
-        if prom and prom.metric then
-            prometheus = prom.metric
-
-            user_agent_counter = prometheus:counter("apisix_conditional_rate_limit_user_agent",
-                "User-Agent strings by tier", {"tier", "user_agent"})
-            api_key_counter = prometheus:counter("apisix_conditional_rate_limit_api_key",
-                "API key usage (hashed)", {"api_key_hash"})
-            email_source_counter = prometheus:counter("apisix_conditional_rate_limit_email_source",
-                "Email detection source", {"source"})
-            tier_counter = prometheus:counter("apisix_conditional_rate_limit_tier",
-                "Overall tier usage", {"tier"})
-        end
-    end
-    return prometheus ~= nil
-end
 
 local schema = {
     type = "object",
@@ -217,27 +190,6 @@ function _M.access(conf, ctx)
     local identifier, tier, has_special_access, api_key, email_source = get_identifier(conf, ctx)
     local count_limit, time_window = get_rate_limit_config(conf, tier)
     local allowed, limit, remaining, reset_time = check_rate_limit(conf, identifier, count_limit, time_window)
-
-    -- Collect Prometheus metrics if available
-    if init_prometheus() then
-        -- Track overall tier usage
-        tier_counter:inc(1, {tier})
-
-        -- Track User-Agent by tier (raw User-Agent string)
-        local user_agent = core.request.header(ctx, "User-Agent") or "unknown"
-        user_agent_counter:inc(1, {tier, user_agent})
-
-        -- Track API key usage (hashed for privacy)
-        if api_key then
-            local api_key_hash = string.sub(md5(api_key), 1, 8)
-            api_key_counter:inc(1, {api_key_hash})
-        end
-
-        -- Track email detection source for polite tier
-        if email_source then
-            email_source_counter:inc(1, {email_source})
-        end
-    end
 
     -- Add rate limit headers
     core.response.set_header("x-ratelimit-limit", limit)

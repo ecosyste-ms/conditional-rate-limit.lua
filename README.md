@@ -10,11 +10,6 @@ This plugin categorizes requests into three tiers with different rate limits:
 2. **Polite** - Users who include an email in their User-Agent or use the `mailto` parameter get moderate limits
 3. **Anonymous** - Everyone else gets the most restrictive limits
 
-The plugin also collects Prometheus metrics for monitoring:
-- User-Agent strings by tier
-- API key usage (hashed for privacy)
-- Email detection source (query_param vs user_agent)
-- Overall tier usage counters
 
 ## Installation
 
@@ -103,17 +98,6 @@ curl "https://api.ecosyste.ms/endpoint?mailto=you@example.com"
 # Anonymous - 10 req/min
 curl https://api.ecosyste.ms/endpoint
 ```
-
-## Prometheus Metrics
-
-The plugin exposes the following metrics via the APISIX Prometheus plugin:
-
-- `apisix_conditional_rate_limit_tier` - Counter of requests by tier (labels: `tier`)
-- `apisix_conditional_rate_limit_user_agent` - Counter of User-Agent strings by tier (labels: `tier`, `user_agent`)
-- `apisix_conditional_rate_limit_api_key` - Counter of API key usage with hashed keys (labels: `api_key_hash`)
-- `apisix_conditional_rate_limit_email_source` - Counter of email detection methods (labels: `source`)
-
-These metrics are available at the standard APISIX Prometheus endpoint (typically `/apisix/prometheus/metrics`).
 
 ## License
 
