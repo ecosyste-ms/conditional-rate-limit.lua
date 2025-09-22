@@ -36,7 +36,7 @@ local schema = {
         api_key_count = {
             type = "integer",
             minimum = 0,
-            default = 50000,
+            default = 100000,
             description = "Rate limit count for API key users per time window"
         },
         api_key_time_window = {
