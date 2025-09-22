@@ -10,6 +10,23 @@ This plugin categorizes requests into three tiers with different rate limits:
 2. **Polite** - Users who include an email in their User-Agent or use the `mailto` parameter get moderate limits
 3. **Anonymous** - Everyone else gets the most restrictive limits
 
+### How Request Identification Works
+
+The plugin identifies and tracks requests differently based on the tier:
+
+- **API Key Tier**: When an API key is provided (via header or query parameter), the rate limit is tracked **per API key**. Each unique API key has its own quota, regardless of the IP address making the request. This means multiple users or servers can share an API key and share the same rate limit quota.
+
+- **Polite Tier**: When an email address is detected (in the User-Agent header or `mailto` query parameter), the request is classified as "polite" but is still tracked **by IP address**. The email only determines which tier's limits apply - it does not become the identifier. Each unique IP address gets its own polite tier quota.
+
+- **Anonymous Tier**: All other requests are tracked **by IP address** with the anonymous tier limits.
+
+### Examples
+
+- Same IP with email → Gets polite tier limits, tracked by that IP
+- Same IP with API key → Gets API key tier limits, tracked by that specific key
+- Different IPs with same email → Each IP gets their own separate polite tier quota
+- Different IPs with same API key → Share the same API key quota
+
 
 ## Installation
 
