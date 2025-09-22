@@ -205,13 +205,16 @@ function _M.access(conf, ctx)
     local allowed, limit, remaining, reset_time = check_rate_limit(conf, identifier, count_limit, time_window)
 
     -- Add rate limit headers
-    core.response.set_header("x-ratelimit-limit", limit)
-    core.response.set_header("x-ratelimit-remaining", remaining)
-    core.response.set_header("x-ratelimit-reset", reset_time)
+    core.response.set_header("x-ratelimit-limit", tostring(limit))
+    core.response.set_header("x-ratelimit-remaining", tostring(remaining))
+    core.response.set_header("x-ratelimit-reset", tostring(reset_time))
     core.response.set_header("x-ratelimit-tier", tier)
 
     -- Add detected IP for debugging (remove in production if not needed)
-    local detected_ip = identifier:match("^([^:]+)")
+    local detected_ip = "unknown"
+    if identifier then
+        detected_ip = identifier:match("^([^:]+)") or "parse-error"
+    end
     core.response.set_header("x-ratelimit-ip", detected_ip)
 
     -- Add API key identifier if present
