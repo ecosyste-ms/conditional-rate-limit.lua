@@ -188,11 +188,12 @@ local function check_rate_limit(conf, identifier, count_limit, time_window)
     local counter = counters[key]
 
     if counter.count >= count_limit then
-        return false, count_limit, counter.count, window_start + time_window
+        return false, count_limit, 0, window_start + time_window
     end
 
     counter.count = counter.count + 1
-    return true, count_limit, count_limit - counter.count, window_start + time_window
+    local remaining = count_limit - counter.count
+    return true, count_limit, remaining, window_start + time_window
 end
 
 function _M.check_schema(conf)
