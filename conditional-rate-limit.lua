@@ -97,7 +97,20 @@ local _M = {
 local counters = {}
 
 local function get_identifier(conf, ctx)
-    local remote_addr = ctx.var.remote_addr or "unknown"
+    -- Get real client IP, checking Cloudflare headers first, then X-Forwarded-For, then remote_addr
+    local remote_addr = core.request.header(ctx, "CF-Connecting-IP") or
+                       core.request.header(ctx, "X-Real-IP") or
+                       core.request.header(ctx, "X-Forwarded-For") or
+                       ctx.var.remote_addr or
+                       "unknown"
+
+    -- If X-Forwarded-For contains multiple IPs, get the first one (original client)
+    if remote_addr and remote_addr:find(",") then
+        remote_addr = remote_addr:match("^([^,]+)")
+        if remote_addr then
+            remote_addr = remote_addr:gsub("^%s*(.-)%s*$", "%1") -- trim whitespace
+        end
+    end
 
     -- Check for API key in header or query param
     local api_key = core.request.header(ctx, conf.key_header)
@@ -196,6 +209,10 @@ function _M.access(conf, ctx)
     core.response.set_header("x-ratelimit-remaining", remaining)
     core.response.set_header("x-ratelimit-reset", reset_time)
     core.response.set_header("x-ratelimit-tier", tier)
+
+    -- Add detected IP for debugging (remove in production if not needed)
+    local detected_ip = identifier:match("^([^:]+)")
+    core.response.set_header("x-ratelimit-ip", detected_ip)
 
     -- Add API key identifier if present
     if api_key then
