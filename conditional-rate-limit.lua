@@ -218,11 +218,6 @@ function _M.access(conf, ctx)
     core.response.set_header("x-ratelimit-reset", tostring(reset_time))
     core.response.set_header("x-ratelimit-tier", tier)
 
-    -- Debug: show what IP and identifier we're using
-    local detected_ip = identifier:match("^([^:]+)") or "unknown"
-    core.response.set_header("x-ratelimit-debug-ip", detected_ip)
-    core.response.set_header("x-ratelimit-debug-id", identifier)
-
     -- Add API key identifier if present
     if api_key then
         core.response.set_header("x-ratelimit-key", string.sub(api_key, 1, 8) .. "...")
