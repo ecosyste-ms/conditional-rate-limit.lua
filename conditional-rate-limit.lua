@@ -93,8 +93,9 @@ local _M = {
     schema = schema
 }
 
--- In-memory storage for rate limiting counters
-local counters = {}
+-- Use APISIX's shared dictionary for persistent storage across requests
+-- This requires the shared dict to be configured in APISIX config
+local limit_count = ngx.shared.plugin_limit_count or ngx.shared.internal_status or {}
 
 local function get_identifier(conf, ctx)
     -- Get real client IP, checking Cloudflare headers first, then X-Forwarded-For, then remote_addr
@@ -170,29 +171,50 @@ local function check_rate_limit(conf, identifier, count_limit, time_window)
     local window_start = now - (now % time_window)
     local key = identifier .. ":" .. window_start
 
-    if not counters[key] then
-        counters[key] = {
-            count = 0,
-            window_start = window_start,
-            expires = window_start + time_window + 60
-        }
-    end
-
-    -- Cleanup old entries
-    for k, v in pairs(counters) do
-        if v.expires < now then
-            counters[k] = nil
+    -- If we don't have a shared dictionary, fall back to local memory (won't persist)
+    if type(limit_count) == "table" then
+        -- Fallback to local table (original implementation)
+        if not limit_count[key] then
+            limit_count[key] = {
+                count = 0,
+                window_start = window_start,
+                expires = window_start + time_window + 60
+            }
         end
+
+        -- Cleanup old entries
+        for k, v in pairs(limit_count) do
+            if v.expires < now then
+                limit_count[k] = nil
+            end
+        end
+
+        local counter = limit_count[key]
+
+        if counter.count >= count_limit then
+            return false, count_limit, 0, window_start + time_window
+        end
+
+        counter.count = counter.count + 1
+        local remaining = count_limit - counter.count
+        return true, count_limit, remaining, window_start + time_window
     end
 
-    local counter = counters[key]
+    -- Use shared dictionary for persistent storage
+    local ttl = time_window + 60
+    local count, err = limit_count:incr(key, 1, 0, ttl)
 
-    if counter.count >= count_limit then
+    if not count then
+        core.log.error("failed to increment counter: ", err)
+        -- Allow the request on error
+        return true, count_limit, count_limit, window_start + time_window
+    end
+
+    if count > count_limit then
         return false, count_limit, 0, window_start + time_window
     end
 
-    counter.count = counter.count + 1
-    local remaining = count_limit - counter.count
+    local remaining = count_limit - count
     return true, count_limit, remaining, window_start + time_window
 end
 
