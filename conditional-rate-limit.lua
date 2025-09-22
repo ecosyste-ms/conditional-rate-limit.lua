@@ -99,11 +99,18 @@ local limit_count = ngx.shared.plugin_limit_count or ngx.shared.internal_status 
 
 local function get_identifier(conf, ctx)
     -- Get real client IP, checking Cloudflare headers first, then X-Forwarded-For, then remote_addr
-    local remote_addr = core.request.header(ctx, "CF-Connecting-IP") or
-                       core.request.header(ctx, "X-Real-IP") or
-                       core.request.header(ctx, "X-Forwarded-For") or
-                       ctx.var.remote_addr or
-                       "unknown"
+    local cf_ip = core.request.header(ctx, "CF-Connecting-IP")
+    local real_ip = core.request.header(ctx, "X-Real-IP")
+    local forwarded = core.request.header(ctx, "X-Forwarded-For")
+    local direct_ip = ctx.var.remote_addr
+
+    -- Debug log what we're seeing
+    core.log.warn("IP Detection Debug: CF-Connecting-IP=", cf_ip,
+                  ", X-Real-IP=", real_ip,
+                  ", X-Forwarded-For=", forwarded,
+                  ", remote_addr=", direct_ip)
+
+    local remote_addr = cf_ip or real_ip or forwarded or direct_ip or "unknown"
 
     -- If X-Forwarded-For contains multiple IPs, get the first one (original client)
     if remote_addr and remote_addr:find(",") then
@@ -232,6 +239,11 @@ function _M.access(conf, ctx)
     core.response.set_header("x-ratelimit-remaining", tostring(remaining))
     core.response.set_header("x-ratelimit-reset", tostring(reset_time))
     core.response.set_header("x-ratelimit-tier", tier)
+
+    -- Debug: show what IP and identifier we're using
+    local detected_ip = identifier:match("^([^:]+)") or "unknown"
+    core.response.set_header("x-ratelimit-debug-ip", detected_ip)
+    core.response.set_header("x-ratelimit-debug-id", identifier)
 
     -- Add API key identifier if present
     if api_key then
