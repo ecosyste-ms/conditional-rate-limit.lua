@@ -27,6 +27,12 @@ The plugin identifies and tracks requests differently based on the tier:
 - Different IPs with same email → Each IP gets their own separate polite tier quota
 - Different IPs with same API key → Share the same API key quota
 
+### Exemptions
+
+Requests to specific host domains can bypass rate limiting entirely. By default, `grafana.ecosyste.ms`, `prometheus.ecosyste.ms`, and `apisix.ecosyste.ms` are exempt. This ensures these services never get rate limited.
+
+Exempt requests bypass rate limiting completely and don't receive rate limit headers.
+
 
 ## Installation
 
@@ -98,6 +104,12 @@ plugins:
       # Response
       rejected_code: 429
       rejected_msg: "Too many requests"
+
+      # Exemptions (optional)
+      exempt_hosts:           # Defaults to ["grafana.ecosyste.ms", "prometheus.ecosyste.ms", "apisix.ecosyste.ms"]
+        - "grafana.ecosyste.ms"
+        - "prometheus.ecosyste.ms"
+        - "apisix.ecosyste.ms"
 ```
 
 ## Examples

@@ -82,6 +82,14 @@ local schema = {
             enum = {"local", "redis"},
             default = "local",
             description = "Storage policy for rate limit counters"
+        },
+        exempt_hosts = {
+            type = "array",
+            items = {
+                type = "string"
+            },
+            default = {"grafana.ecosyste.ms", "prometheus.ecosyste.ms", "apisix.ecosyste.ms"},
+            description = "List of host domains to bypass rate limiting completely"
         }
     }
 }
@@ -208,6 +216,18 @@ function _M.check_schema(conf)
 end
 
 function _M.access(conf, ctx)
+    -- Check if request is TO an exempt host domain - bypass all rate limiting
+    if conf.exempt_hosts then
+        local host = ctx.var.host or core.request.header(ctx, "Host") or ""
+        for _, exempt_host in ipairs(conf.exempt_hosts) do
+            if host == exempt_host then
+                core.log.info("Request to exempt host: ", host)
+                return -- Bypass rate limiting completely
+            end
+        end
+    end
+
+
     local identifier, tier, has_special_access, api_key, email_source = get_identifier(conf, ctx)
     local count_limit, time_window = get_rate_limit_config(conf, tier)
     local allowed, limit, remaining, reset_time = check_rate_limit(conf, identifier, count_limit, time_window)
