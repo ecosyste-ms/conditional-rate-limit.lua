@@ -45,16 +45,6 @@ local schema = {
             default = 3600,
             description = "Time window in seconds for API key users"
         },
-        key_header = {
-            type = "string",
-            default = "X-API-Key",
-            description = "Header to check for API key"
-        },
-        key_query_param = {
-            type = "string",
-            default = "apikey",
-            description = "Query parameter to check for API key"
-        },
         email_pattern = {
             type = "string",
             default = "%S+@%S+%.%S+",
@@ -113,6 +103,13 @@ if not shared_dict then
 end
 
 local function get_identifier(conf, ctx)
+    -- Check if this request is from an authenticated consumer
+    if ctx.consumer_name then
+        -- Use consumer name as identifier for per-consumer rate limiting
+        local identifier = "consumer:" .. ctx.consumer_name
+        return identifier, "api_key", true, ctx.consumer_name, nil
+    end
+
     -- Get real client IP, checking Cloudflare headers first, then X-Forwarded-For, then remote_addr
     local remote_addr = core.request.header(ctx, "CF-Connecting-IP") or
                        core.request.header(ctx, "X-Real-IP") or
@@ -126,19 +123,6 @@ local function get_identifier(conf, ctx)
         if remote_addr then
             remote_addr = remote_addr:gsub("^%s*(.-)%s*$", "%1") -- trim whitespace
         end
-    end
-
-    -- Check for API key in header or query param
-    local api_key = core.request.header(ctx, conf.key_header)
-    if not api_key and conf.key_query_param then
-        local args = core.request.get_uri_args(ctx) or {}
-        api_key = args[conf.key_query_param]
-    end
-
-    if api_key then
-        -- Use API key as identifier for per-key rate limiting
-        local identifier = "apikey:" .. api_key
-        return identifier, "api_key", true, api_key, nil
     end
 
     -- Check for email in mailto query parameter first
@@ -238,9 +222,9 @@ function _M.access(conf, ctx)
     core.response.set_header("x-ratelimit-reset", tostring(reset_time))
     core.response.set_header("x-ratelimit-tier", tier)
 
-    -- Add API key identifier if present
-    if api_key then
-        core.response.set_header("x-ratelimit-key", string.sub(api_key, 1, 8) .. "...")
+    -- Add consumer identifier if present
+    if ctx.consumer_name then
+        core.response.set_header("x-ratelimit-consumer", ctx.consumer_name)
     end
 
     if not allowed then
