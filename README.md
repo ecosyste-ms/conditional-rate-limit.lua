@@ -6,7 +6,7 @@ Apache APISIX plugin for three-tier rate limiting used by [Ecosyste.ms](https://
 
 This plugin categorizes requests into three tiers with different rate limits:
 
-1. **API Key** - Users with API keys get the highest limits
+1. **API Key (Consumer)** - Authenticated APISIX consumers get the highest limits
 2. **Polite** - Users who include an email in their User-Agent or use the `mailto` parameter get moderate limits
 3. **Anonymous** - Everyone else gets the most restrictive limits
 
@@ -14,7 +14,7 @@ This plugin categorizes requests into three tiers with different rate limits:
 
 The plugin identifies and tracks requests differently based on the tier:
 
-- **API Key Tier**: When an API key is provided (via header or query parameter), the rate limit is tracked **per API key**. Each unique API key has its own quota, regardless of the IP address making the request. This means multiple users or servers can share an API key and share the same rate limit quota.
+- **API Key Tier**: When a request is authenticated by an APISIX consumer (using plugins like `key-auth`, `jwt-auth`, etc.), the rate limit is tracked **per consumer**. Each unique consumer has its own quota, regardless of the IP address making the request. This provides proper authentication and centralized credential management through APISIX.
 
 - **Polite Tier**: When an email address is detected (in the User-Agent header or `mailto` query parameter), the request is classified as "polite" but is still tracked **by IP address**. The email only determines which tier's limits apply - it does not become the identifier. Each unique IP address gets its own polite tier quota.
 
@@ -23,9 +23,9 @@ The plugin identifies and tracks requests differently based on the tier:
 ### Examples
 
 - Same IP with email → Gets polite tier limits, tracked by that IP
-- Same IP with API key → Gets API key tier limits, tracked by that specific key
+- Authenticated consumer → Gets API key tier limits, tracked by consumer name
 - Different IPs with same email → Each IP gets their own separate polite tier quota
-- Different IPs with same API key → Share the same API key quota
+- Different IPs with same consumer credentials → Share the same consumer quota
 
 ### Exemptions
 
@@ -59,20 +59,55 @@ curl -X PUT \
   -d '{
     "plugins": {
       "conditional-rate-limit": {
-        "api_key_count": 50000,
+        "api_key_count": 100000,
         "api_key_time_window": 3600,
         "polite_count": 15000,
         "polite_time_window": 3600,
         "anonymous_count": 5000,
         "anonymous_time_window": 3600,
-        "key_header": "X-API-Key",
-        "key_query_param": "apikey",
         "mailto_query_param": "mailto",
         "email_pattern": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
       }
     }
   }'
 ```
+
+## Setting Up Consumers for API Key Tier
+
+To use the API Key tier, you need to create APISIX consumers with authentication credentials:
+
+1. Create a consumer with the `key-auth` plugin:
+
+```bash
+curl -X PUT \
+  http://YOUR_APISIX_IP:9180/apisix/admin/consumers \
+  -H 'Content-Type: application/json' \
+  -H "X-API-KEY: YOUR_ADMIN_API_KEY" \
+  -d '{
+    "username": "my-api-user",
+    "plugins": {
+      "key-auth": {
+        "key": "your-secure-api-key-here"
+      }
+    }
+  }'
+```
+
+2. Enable `key-auth` on your routes or as a global rule. For global authentication:
+
+```bash
+curl -X PUT \
+  http://YOUR_APISIX_IP:9180/apisix/admin/global_rules/2 \
+  -H 'Content-Type: application/json' \
+  -H "X-API-KEY: YOUR_ADMIN_API_KEY" \
+  -d '{
+    "plugins": {
+      "key-auth": {}
+    }
+  }'
+```
+
+**Note**: You can use other authentication plugins (`jwt-auth`, `basic-auth`, etc.) instead of `key-auth`. The rate limiting plugin works with any auth plugin that sets `ctx.consumer_name`
 
 ## Configuration
 
@@ -81,21 +116,17 @@ plugins:
   conditional-rate-limit:
     enable: true
     config:
-      # API Key tier
-      api_key_count: 1000
-      api_key_time_window: 60
+      # API Key tier (for authenticated consumers)
+      api_key_count: 100000
+      api_key_time_window: 3600
 
       # Polite tier
-      polite_count: 100
-      polite_time_window: 60
+      polite_count: 15000
+      polite_time_window: 3600
 
       # Anonymous tier
-      anon_count: 10
-      anon_time_window: 60
-
-      # API key detection
-      key_header: "X-API-Key"
-      key_query_param: "apikey"
+      anonymous_count: 5000
+      anonymous_time_window: 3600
 
       # Email detection for polite tier
       mailto_query_param: "mailto"
@@ -103,7 +134,7 @@ plugins:
 
       # Response
       rejected_code: 429
-      rejected_msg: "Too many requests"
+      rejected_msg: "Rate limit exceeded. See https://ecosyste.ms/api for details."
 
       # Exemptions (optional)
       exempt_hosts:           # Defaults to ["grafana.ecosyste.ms", "prometheus.ecosyste.ms", "apisix.ecosyste.ms"]
@@ -115,18 +146,26 @@ plugins:
 ## Examples
 
 ```bash
-# API key - 1000 req/min
-curl -H "X-API-Key: your-key" https://api.ecosyste.ms/endpoint
+# Authenticated consumer - 100,000 req/hour
+# (Assumes consumer created with key-auth plugin)
+curl -H "apikey: your-secure-api-key-here" https://api.ecosyste.ms/endpoint
 
-# Polite - 100 req/min (via User-Agent)
+# Polite - 15,000 req/hour (via User-Agent)
 curl -H "User-Agent: MyApp/1.0 (contact: user@example.com)" https://api.ecosyste.ms/endpoint
 
-# Polite - 100 req/min (via mailto parameter)
+# Polite - 15,000 req/hour (via mailto parameter)
 curl "https://api.ecosyste.ms/endpoint?mailto=you@example.com"
 
-# Anonymous - 10 req/min
+# Anonymous - 5,000 req/hour
 curl https://api.ecosyste.ms/endpoint
 ```
+
+Response headers will include:
+- `x-ratelimit-limit`: Maximum requests allowed in the time window
+- `x-ratelimit-remaining`: Requests remaining in current window
+- `x-ratelimit-reset`: Unix timestamp when the rate limit resets
+- `x-ratelimit-tier`: The tier applied (`api_key`, `polite`, or `anonymous`)
+- `x-ratelimit-consumer`: Consumer username (only for authenticated requests)
 
 ## License
 
