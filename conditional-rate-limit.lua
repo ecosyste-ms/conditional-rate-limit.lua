@@ -103,11 +103,24 @@ if not shared_dict then
 end
 
 local function get_identifier(conf, ctx)
+    -- Check if an API key was provided in header or query param
+    local provided_api_key = core.request.header(ctx, "apikey") or
+                             core.request.header(ctx, "X-API-Key")
+    if not provided_api_key and conf.key_query_param then
+        local args = core.request.get_uri_args(ctx) or {}
+        provided_api_key = args[conf.key_query_param]
+    end
+
     -- Check if this request is from an authenticated consumer
-    if ctx.consumer_name then
+    if ctx.consumer_name and ctx.consumer_name ~= "anonymous" then
         -- Use consumer name as identifier for per-consumer rate limiting
         local identifier = "consumer:" .. ctx.consumer_name
         return identifier, "api_key", true, ctx.consumer_name, nil
+    end
+
+    -- If an API key was provided but no valid consumer was identified, reject the request
+    if provided_api_key then
+        return nil, "invalid_key", false, nil, nil
     end
 
     -- Get real client IP, checking Cloudflare headers first, then X-Forwarded-For, then remote_addr
@@ -155,8 +168,15 @@ local function get_identifier(conf, ctx)
     return identifier, tier, is_polite, nil, email_source
 end
 
-local function get_rate_limit_config(conf, tier)
+local function get_rate_limit_config(conf, ctx, tier)
     if tier == "api_key" then
+        -- Try to get rate limit from consumer's limit-count plugin
+        if ctx.consumer and ctx.consumer.plugins and ctx.consumer.plugins["limit-count"] then
+            local limit_count = ctx.consumer.plugins["limit-count"]
+            local count = limit_count.count or conf.api_key_count
+            local time_window = limit_count.time_window or conf.api_key_time_window
+            return count, time_window
+        end
         return conf.api_key_count, conf.api_key_time_window
     elseif tier == "polite" then
         return conf.polite_count, conf.polite_time_window
@@ -213,7 +233,13 @@ function _M.access(conf, ctx)
 
 
     local identifier, tier, has_special_access, api_key, email_source = get_identifier(conf, ctx)
-    local count_limit, time_window = get_rate_limit_config(conf, tier)
+
+    -- Reject invalid API keys immediately
+    if tier == "invalid_key" then
+        return 401, {error_msg = "Invalid API key"}
+    end
+
+    local count_limit, time_window = get_rate_limit_config(conf, ctx, tier)
     local allowed, limit, remaining, reset_time = check_rate_limit(conf, identifier, count_limit, time_window)
 
     -- Add rate limit headers
