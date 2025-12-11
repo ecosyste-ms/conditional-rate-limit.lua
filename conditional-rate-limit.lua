@@ -1,5 +1,4 @@
 local core = require("apisix.core")
-local plugin = require("apisix.plugin")
 local ngx = ngx
 local ngx_time = ngx.time
 local string = string
@@ -223,10 +222,6 @@ function _M.check_schema(conf)
 end
 
 function _M.access(conf, ctx)
-    -- DEBUG: Return consumer info in headers
-    core.response.set_header("x-debug-consumer-name", tostring(ctx.consumer_name or "nil"))
-    core.response.set_header("x-debug-consumer-obj", ctx.consumer and ctx.consumer.username or "nil")
-
     -- Check if request is TO an exempt host domain - bypass all rate limiting
     if conf.exempt_hosts then
         local host = ctx.var.host or core.request.header(ctx, "Host") or ""
