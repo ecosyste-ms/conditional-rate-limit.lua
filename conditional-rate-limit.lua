@@ -124,20 +124,7 @@ local function get_identifier(conf, ctx)
         return identifier, "api_key", true, consumer_name, nil
     end
 
-    -- Check if an API key was provided but authentication failed (consumer is anonymous)
-    local provided_api_key = core.request.header(ctx, "apikey") or
-                             core.request.header(ctx, "X-API-Key")
-    if not provided_api_key then
-        local args = core.request.get_uri_args(ctx) or {}
-        provided_api_key = args["apikey"]
-    end
-
-    if provided_api_key then
-        -- API key was provided but key-auth didn't authenticate it (fell back to anonymous)
-        return nil, "invalid_key", false, nil, nil
-    end
-
-    -- No API key provided, continue with IP-based identification
+    -- No authenticated consumer, continue with IP-based identification
 
     -- Get real client IP, checking Cloudflare headers first, then X-Forwarded-For, then remote_addr
     local remote_addr = core.request.header(ctx, "CF-Connecting-IP") or
@@ -276,11 +263,6 @@ function _M.access(conf, ctx)
     end
 
     local identifier, tier, has_special_access, api_key, email_source = get_identifier(conf, ctx)
-
-    -- Reject invalid API keys immediately
-    if tier == "invalid_key" then
-        return 401, {error_msg = "Invalid API key"}
-    end
 
     local count_limit, time_window = get_rate_limit_config(conf, ctx, tier)
     local allowed, limit, remaining, reset_time = check_rate_limit(conf, identifier, count_limit, time_window)
