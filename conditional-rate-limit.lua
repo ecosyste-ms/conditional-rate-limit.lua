@@ -80,6 +80,14 @@ local schema = {
             },
             default = {"grafana.ecosyste.ms", "prometheus.ecosyste.ms", "apisix.ecosyste.ms"},
             description = "List of host domains to bypass rate limiting completely"
+        },
+        exempt_ips = {
+            type = "array",
+            items = {
+                type = "string"
+            },
+            default = {},
+            description = "List of IP addresses to bypass rate limiting completely"
         }
     }
 }
@@ -231,6 +239,29 @@ function _M.access(conf, ctx)
         end
     end
 
+    -- Check if request is FROM an exempt IP address - bypass all rate limiting
+    if conf.exempt_ips and #conf.exempt_ips > 0 then
+        local remote_addr = core.request.header(ctx, "CF-Connecting-IP") or
+                           core.request.header(ctx, "X-Real-IP") or
+                           core.request.header(ctx, "X-Forwarded-For") or
+                           ctx.var.remote_addr or
+                           "unknown"
+
+        -- If X-Forwarded-For contains multiple IPs, get the first one
+        if remote_addr and remote_addr:find(",") then
+            remote_addr = remote_addr:match("^([^,]+)")
+            if remote_addr then
+                remote_addr = remote_addr:gsub("^%s*(.-)%s*$", "%1")
+            end
+        end
+
+        for _, exempt_ip in ipairs(conf.exempt_ips) do
+            if remote_addr == exempt_ip then
+                core.log.info("Request from exempt IP: ", remote_addr)
+                return -- Bypass rate limiting completely
+            end
+        end
+    end
 
     local identifier, tier, has_special_access, api_key, email_source = get_identifier(conf, ctx)
 
