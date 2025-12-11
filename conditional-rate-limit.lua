@@ -236,10 +236,9 @@ function _M.check_schema(conf)
 end
 
 function _M.access(conf, ctx)
-    -- DEBUG: Check what key-auth is setting
-    core.log.warn("DEBUG consumer_name=", ctx.consumer_name,
-                  " consumer=", ctx.consumer and ctx.consumer.username,
-                  " consumer_obj=", core.json.encode(ctx.consumer or {}))
+    -- DEBUG: Return consumer info in headers
+    core.response.set_header("x-debug-consumer-name", tostring(ctx.consumer_name or "nil"))
+    core.response.set_header("x-debug-consumer-obj", ctx.consumer and ctx.consumer.username or "nil")
 
     -- Check if request is TO an exempt host domain - bypass all rate limiting
     if conf.exempt_hosts then
