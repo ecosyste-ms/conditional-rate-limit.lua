@@ -111,25 +111,33 @@ if not shared_dict then
 end
 
 local function get_identifier(conf, ctx)
-    -- Check if an API key was provided in header or query param
+    -- Get consumer name from ctx (may be set by key-auth or other auth plugins)
+    -- Try ctx.consumer_name first, fall back to ctx.consumer.username
+    local consumer_name = ctx.consumer_name
+    if not consumer_name and ctx.consumer then
+        consumer_name = ctx.consumer.username
+    end
+
+    -- Check if this request is from an authenticated consumer (not anonymous)
+    if consumer_name and consumer_name ~= "anonymous" then
+        local identifier = "consumer:" .. consumer_name
+        return identifier, "api_key", true, consumer_name, nil
+    end
+
+    -- Check if an API key was provided but authentication failed (consumer is anonymous)
     local provided_api_key = core.request.header(ctx, "apikey") or
                              core.request.header(ctx, "X-API-Key")
-    if not provided_api_key and conf.key_query_param then
+    if not provided_api_key then
         local args = core.request.get_uri_args(ctx) or {}
-        provided_api_key = args[conf.key_query_param]
+        provided_api_key = args["apikey"]
     end
 
-    -- Check if this request is from an authenticated consumer
-    if ctx.consumer_name and ctx.consumer_name ~= "anonymous" then
-        -- Use consumer name as identifier for per-consumer rate limiting
-        local identifier = "consumer:" .. ctx.consumer_name
-        return identifier, "api_key", true, ctx.consumer_name, nil
-    end
-
-    -- If an API key was provided but no valid consumer was identified, reject the request
     if provided_api_key then
+        -- API key was provided but key-auth didn't authenticate it (fell back to anonymous)
         return nil, "invalid_key", false, nil, nil
     end
+
+    -- No API key provided, continue with IP-based identification
 
     -- Get real client IP, checking Cloudflare headers first, then X-Forwarded-For, then remote_addr
     local remote_addr = core.request.header(ctx, "CF-Connecting-IP") or
