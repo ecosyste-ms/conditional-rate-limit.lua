@@ -29,9 +29,12 @@ The plugin identifies and tracks requests differently based on the tier:
 
 ### Exemptions
 
-Requests to specific host domains can bypass rate limiting entirely. By default, `grafana.ecosyste.ms`, `prometheus.ecosyste.ms`, and `apisix.ecosyste.ms` are exempt. This ensures these services never get rate limited.
+Requests can bypass rate limiting entirely based on:
 
-Exempt requests bypass rate limiting completely and don't receive rate limit headers.
+- **exempt_hosts**: Requests to specific host domains (e.g., `grafana.ecosyste.ms`)
+- **exempt_ips**: Requests from specific IP addresses
+
+By default, `grafana.ecosyste.ms`, `prometheus.ecosyste.ms`, and `apisix.ecosyste.ms` are exempt hosts. Exempt requests bypass rate limiting completely and don't receive rate limit headers.
 
 
 ## Installation
@@ -49,34 +52,11 @@ docker cp ~/conditional-rate-limit.lua/conditional-rate-limit.lua apisix-quickst
 docker restart apisix-quickstart
 ```
 
-3. Configure as a global rule via the APISIX Admin API:
-
-```bash
-curl -X PUT \
-  http://YOUR_APISIX_IP:9180/apisix/admin/global_rules/1 \
-  -H 'Content-Type: application/json' \
-  -H "X-API-KEY: YOUR_ADMIN_API_KEY" \
-  -d '{
-    "plugins": {
-      "conditional-rate-limit": {
-        "api_key_count": 100000,
-        "api_key_time_window": 3600,
-        "polite_count": 15000,
-        "polite_time_window": 3600,
-        "anonymous_count": 5000,
-        "anonymous_time_window": 3600,
-        "mailto_query_param": "mailto",
-        "email_pattern": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
-      }
-    }
-  }'
-```
-
 ## Setting Up Consumers for API Key Tier
 
 To use the API Key tier, you need to create APISIX consumers with authentication credentials:
 
-1. Create a consumer with the `key-auth` plugin:
+1. Create a consumer with `key-auth` and optionally a custom rate limit via `limit-count`:
 
 ```bash
 curl -X PUT \
@@ -88,22 +68,53 @@ curl -X PUT \
     "plugins": {
       "key-auth": {
         "key": "your-secure-api-key-here"
+      },
+      "limit-count": {
+        "count": 500000,
+        "time_window": 3600
       }
     }
   }'
 ```
 
-2. Enable `key-auth` on your routes or as a global rule. For global authentication:
+The plugin reads `count` and `time_window` from the consumer's `limit-count` plugin if present, allowing custom rate limits per consumer. If not specified, the plugin's default `api_key_count` and `api_key_time_window` are used.
+
+2. Enable `key-auth` in the **same global rule** as the rate limiting plugin:
 
 ```bash
 curl -X PUT \
-  http://YOUR_APISIX_IP:9180/apisix/admin/global_rules/2 \
+  http://YOUR_APISIX_IP:9180/apisix/admin/global_rules/1 \
   -H 'Content-Type: application/json' \
   -H "X-API-KEY: YOUR_ADMIN_API_KEY" \
   -d '{
     "plugins": {
-      "key-auth": {}
+      "key-auth": {
+        "hide_credentials": true,
+        "header": "apikey",
+        "query": "apikey",
+        "anonymous_consumer": "anonymous"
+      },
+      "conditional-rate-limit": {
+        "anonymous_count": 5000,
+        "polite_count": 15000,
+        "api_key_count": 100000
+      }
     }
+  }'
+```
+
+**Important**: Both plugins must be in the same global rule. Due to [a bug in APISIX](https://github.com/apache/apisix/issues/12704), plugins in separate global rules execute by creation timestamp rather than by plugin phase/priority. If key-auth is in a different global rule, `ctx.consumer_name` won't be set when the rate limiting plugin runs.
+
+3. Create an anonymous consumer for unauthenticated requests:
+
+```bash
+curl -X PUT \
+  http://YOUR_APISIX_IP:9180/apisix/admin/consumers \
+  -H 'Content-Type: application/json' \
+  -H "X-API-KEY: YOUR_ADMIN_API_KEY" \
+  -d '{
+    "username": "anonymous",
+    "desc": "Fallback for unauthenticated requests"
   }'
 ```
 
@@ -141,6 +152,9 @@ plugins:
         - "grafana.ecosyste.ms"
         - "prometheus.ecosyste.ms"
         - "apisix.ecosyste.ms"
+      exempt_ips:             # IP addresses to bypass rate limiting (defaults to [])
+        - "192.168.1.100"
+        - "10.0.0.50"
 ```
 
 ## Examples
