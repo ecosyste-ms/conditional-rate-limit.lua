@@ -87,6 +87,22 @@ local schema = {
             },
             default = {},
             description = "List of IP addresses to bypass rate limiting completely"
+        },
+        ua_tiers = {
+            type = "array",
+            items = {
+                type = "object",
+                properties = {
+                    name = {type = "string", minLength = 1},
+                    ua_pattern = {type = "string", minLength = 1},
+                    hosts = {type = "array", items = {type = "string"}},
+                    count = {type = "integer", minimum = 0},
+                    time_window = {type = "integer", minimum = 1}
+                },
+                required = {"name", "ua_pattern", "count", "time_window"}
+            },
+            default = {},
+            description = "Per-IP limits for User-Agents matching a Lua pattern, optionally restricted to hosts"
         }
     }
 }
@@ -107,6 +123,30 @@ if not shared_dict then
     if not shared_dict then
         core.log.error("No shared dictionary found for rate limiting!")
     end
+end
+
+local function match_ua_tier(conf, ctx)
+    if not conf.ua_tiers or #conf.ua_tiers == 0 then
+        return nil
+    end
+
+    local user_agent = core.request.header(ctx, "User-Agent") or ""
+    local host = ctx.var.host or ""
+    for _, ua_tier in ipairs(conf.ua_tiers) do
+        local host_ok = not ua_tier.hosts or #ua_tier.hosts == 0
+        if not host_ok then
+            for _, h in ipairs(ua_tier.hosts) do
+                if host == h then
+                    host_ok = true
+                    break
+                end
+            end
+        end
+        if host_ok and string.find(user_agent, ua_tier.ua_pattern) then
+            return ua_tier
+        end
+    end
+    return nil
 end
 
 local function get_identifier(conf, ctx)
@@ -140,6 +180,11 @@ local function get_identifier(conf, ctx)
         end
     end
 
+    local ua_tier = match_ua_tier(conf, ctx)
+    if ua_tier then
+        return remote_addr .. ":ua:" .. ua_tier.name, ua_tier.name, true, nil, nil, ua_tier
+    end
+
     -- Check for email in mailto query parameter first
     local is_polite = false
     local email_source = nil
@@ -170,8 +215,10 @@ local function get_identifier(conf, ctx)
     return identifier, tier, is_polite, nil, email_source
 end
 
-local function get_rate_limit_config(conf, ctx, tier)
-    if tier == "api_key" then
+local function get_rate_limit_config(conf, ctx, tier, ua_tier)
+    if ua_tier then
+        return ua_tier.count, ua_tier.time_window
+    elseif tier == "api_key" then
         -- Try to get rate limit from consumer's limit-count plugin
         if ctx.consumer and ctx.consumer.plugins and ctx.consumer.plugins["limit-count"] then
             local limit_count = ctx.consumer.plugins["limit-count"]
@@ -257,9 +304,9 @@ function _M.access(conf, ctx)
         end
     end
 
-    local identifier, tier, has_special_access, api_key, email_source = get_identifier(conf, ctx)
+    local identifier, tier, has_special_access, api_key, email_source, ua_tier = get_identifier(conf, ctx)
 
-    local count_limit, time_window = get_rate_limit_config(conf, ctx, tier)
+    local count_limit, time_window = get_rate_limit_config(conf, ctx, tier, ua_tier)
     local allowed, limit, remaining, reset_time = check_rate_limit(conf, identifier, count_limit, time_window)
 
     -- Add rate limit headers

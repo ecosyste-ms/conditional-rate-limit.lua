@@ -155,6 +155,22 @@ plugins:
       exempt_ips:             # IP addresses to bypass rate limiting (defaults to [])
         - "192.168.1.100"
         - "10.0.0.50"
+
+      # User-Agent tiers (optional, defaults to [])
+      ua_tiers:
+        - name: "parlay"
+          ua_pattern: "^parlay %("        # Lua pattern matched against User-Agent
+          hosts: ["packages.ecosyste.ms"] # omit to match every host
+          count: 15000
+          time_window: 3600
+```
+
+A matching User-Agent tier takes precedence over the polite and anonymous tiers but not over an authenticated consumer. Requests are still counted per IP, in a bucket separate from that IP's anonymous or polite bucket, and `x-ratelimit-tier` is set to the tier's `name`. User-Agents are easy to spoof, so restrict a tier to the hosts that client uses.
+
+Tests stub `ngx` and `apisix.core` and run with plain Lua or LuaJIT:
+
+```bash
+lua test/conditional_rate_limit_test.lua
 ```
 
 ## Examples
