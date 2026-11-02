@@ -149,6 +149,40 @@ local function match_ua_tier(conf, ctx)
     return nil
 end
 
+-- Reserved and private-use names (RFC 2606, RFC 6761, RFC 6762, ICANN .internal)
+local placeholder_tlds = {
+    example = true, invalid = true, localhost = true, test = true,
+    ["local"] = true, internal = true,
+}
+local placeholder_domains = {
+    ["example.com"] = true, ["example.net"] = true, ["example.org"] = true,
+}
+
+local function is_placeholder_domain(domain)
+    domain = string.lower(domain):gsub("%.+$", "")
+    local tld = domain:match("([^%.]+)$")
+    if tld and placeholder_tlds[tld] then
+        return true
+    end
+    local registrable = domain:match("([^%.]+%.[^%.]+)$")
+    return registrable ~= nil and placeholder_domains[registrable] == true
+end
+
+-- Placeholder addresses don't earn the polite tier; one real domain in the string is enough
+local function has_email(s, pattern)
+    if not string.match(s, pattern) then
+        return false
+    end
+    local found_domain = false
+    for domain in string.gmatch(s, "@([%w%.%-]+)") do
+        found_domain = true
+        if not is_placeholder_domain(domain) then
+            return true
+        end
+    end
+    return not found_domain
+end
+
 local function get_identifier(conf, ctx)
     -- Get consumer name from ctx (may be set by key-auth or other auth plugins)
     -- Try ctx.consumer_name first, fall back to ctx.consumer.username
@@ -191,9 +225,17 @@ local function get_identifier(conf, ctx)
     if conf.mailto_query_param then
         local args = core.request.get_uri_args(ctx) or {}
         local mailto = args[conf.mailto_query_param]
-        if mailto then
-            -- Check if the mailto parameter contains a valid email
-            is_polite = string.match(mailto, conf.email_pattern) ~= nil
+        -- A repeated param arrives as a table, a bare `?mailto` as boolean true
+        if type(mailto) == "string" then
+            mailto = { mailto }
+        end
+        if type(mailto) == "table" then
+            for _, value in ipairs(mailto) do
+                if type(value) == "string" and has_email(value, conf.email_pattern) then
+                    is_polite = true
+                    break
+                end
+            end
             if is_polite then
                 email_source = "query_param"
             end
@@ -203,7 +245,7 @@ local function get_identifier(conf, ctx)
     -- If not found in mailto param, check User-Agent
     if not is_polite then
         local user_agent = core.request.header(ctx, "User-Agent") or ""
-        is_polite = string.match(user_agent, conf.email_pattern) ~= nil
+        is_polite = has_email(user_agent, conf.email_pattern)
         if is_polite then
             email_source = "user_agent"
         end

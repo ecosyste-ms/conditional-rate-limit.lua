@@ -16,7 +16,7 @@ The plugin identifies and tracks requests differently based on the tier:
 
 - **API Key Tier**: When a request is authenticated by an APISIX consumer (using plugins like `key-auth`, `jwt-auth`, etc.), the rate limit is tracked **per consumer**. Each unique consumer has its own quota, regardless of the IP address making the request. This provides proper authentication and centralized credential management through APISIX.
 
-- **Polite Tier**: When an email address is detected (in the User-Agent header or `mailto` query parameter), the request is classified as "polite" but is still tracked **by IP address**. The email only determines which tier's limits apply - it does not become the identifier. Each unique IP address gets its own polite tier quota.
+- **Polite Tier**: When an email address is detected (in the User-Agent header or `mailto` query parameter), the request is classified as "polite" but is still tracked **by IP address**. The email only determines which tier's limits apply - it does not become the identifier. Each unique IP address gets its own polite tier quota. Addresses at reserved or private-use domains (`example.com`, `example.net`, `example.org` and their subdomains, and anything under `.example`, `.invalid`, `.localhost`, `.test`, `.local` or `.internal`) don't count; the string needs at least one address at a real domain.
 
 - **Anonymous Tier**: All other requests are tracked **by IP address** with the anonymous tier limits.
 
@@ -141,7 +141,7 @@ plugins:
 
       # Email detection for polite tier
       mailto_query_param: "mailto"
-      email_pattern: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+      email_pattern: "%S+@%S+%.%S+"
 
       # Response
       rejected_code: 429
